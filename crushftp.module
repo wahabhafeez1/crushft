@@ -1,0 +1,228 @@
+<?php
+
+/**
+ * @file
+ * Module file for crushftp.
+ */
+
+
+/**
+ * Implements hook_permission().
+ */
+function crushftp_permission() {
+  return array(
+    'admin crushftp' => array(
+      'title' => t('Admin crushftp'),
+      'description' => t('Allow user to admin crushftp'),
+    ),
+    'create crushftp account' => array(
+      'title' => t('Create crushftp account'),
+      'description' => t('Allow user to create crushftp account'),
+    ),
+    'update own crushftp account' => array(
+      'title' => t('Update own crushftp account'),
+      'description' => t('Allow user to update their own crushftp account'),
+    ),
+    'delete own crushftp account' => array(
+      'title' => t('Delete own crushftp account'),
+      'description' => t('Allow user to delete their own crushftp account'),
+    ),
+    'update any crushftp account' => array(
+      'title' => t('Update any crushftp account'),
+      'description' => t('Allow user to update any crushftp account'),
+    ),
+    'delete any crushftp account' => array(
+      'title' => t('Delete any crushftp account'),
+      'description' => t('Allow user to delete any crushftp account'),
+    ),
+    'reset any crushftp password' => array(
+      'title' => t('reset any crushftp password'),
+      'description' => t('Allow user reset any crushftp password'),
+    ),
+    'extend indefinitely crushftp account' => array(
+      'title' => t('Extend indefinitely crushftp account'),
+      'description' => t('Allow user to extend indefinitely crushftp account'),
+    ),
+    'admin site update account crushftp account' => array(
+      'title' => t('Admin site update account crushftp account'),
+      'description' => t('Allow admin to update accounts for example set account to unlimites'),
+    ),
+    'update ftp folders size' => array(
+      'title' => t('update ftp folders size'),
+      'description' => t('update ftp folders size'),
+    ),
+  );
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+function crushftp_menu() {
+  $items['crushftp/add'] = array(
+    'title' => 'Add New Client',
+    'description' => 'Add crushftp user',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_add_form'),
+    'access arguments' => array('create crushftp account'),
+    'file' => 'crushftp.inc',
+  );
+  $items['crushftp/update/%'] = array(
+    'title' => 'Update FTP Account',
+    'description' => 'Update crushftp user',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_update_form', 2),
+    'access callback' => '_crushftp_update_access',
+    'access arguments' => array(2),
+    'file' => 'crushftp.inc',
+  );
+   $items['crushftp/adminupdate/%'] = array(
+    'title' => 'Update Admin Site FTP Account',
+    'description' => 'Update admin site crushftp user',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_update_admin_site_form',2),
+    //'access callback' => '_crushftp_update_access',
+    'access arguments' => array('admin site update account crushftp account'),
+    'file' => 'crushftp.inc',
+  );
+  $items['crushftp/delete/%'] = array(
+    'title' => 'Delete FTP Accont',
+    'description' => 'crushftp',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_delete_form', 2),
+    'access callback' => '_crushftp_delete_access',
+    'access arguments' => array(2),
+    'file' => 'crushftp.inc',
+  );
+    $items['crushftp/password_reset/%'] = array(
+    'title' => 'Reset Password',
+    'description' => 'Reset Password',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_reset_password', 2),
+    'access callback' => TRUE,//'_crushftp_update_access',
+    'access arguments' => array(2),
+    'file' => 'crushftp.reminder.inc',
+  );
+  $items['admin/config/administration/crushftp'] = array(
+    'title' => 'Admin Crushftp',
+    'description' => 'Admin commen crushftp properties',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_admin_form'),
+    'access arguments' => array('admin crushftp'),
+    'file' => 'crushftp.admin.inc',
+  );
+    $items['crushftp/updateftpfolders'] = array(
+    'title' => 'Manually Update FTP Folders',
+    'description' => 'Update FTP Folders',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('crushftp_update_ftp_folder_form'),
+    'access arguments' => array('update ftp folders size'),
+    'file' => 'crushftp.inc',
+  );
+  return $items;
+}
+
+
+/**
+ * Checks if the user has access to update the given crushftp account.
+ *
+ * @param object $entity
+ *   The entity that will be updated.
+ *
+ * @return bool
+ *   TRUE if the user is allowed to update the entity;
+ *   FALSE if the user is not permitted to update the entity.
+ */
+function _crushftp_update_access($entity) {
+  global $user;
+
+  // Check if current user can update any account.
+  if (!empty($entity) && user_access('update any crushftp account')) {
+    return TRUE;
+  }
+  db_set_active('crushftp');
+  $result = db_select('users', 'u')
+    ->condition('id', $entity)
+    ->condition('createdBy', $user->uid)
+    ->fields('u')
+    ->execute()
+    ->fetchAssoc();
+  // Connecting to default drupal database.
+  db_set_active();
+  if (!empty($result) && user_access('update any crushftp account')) {
+    return TRUE;
+  }
+  // Check if current crushftp account is owned by user.
+
+  return FALSE;
+}
+
+
+/**
+ * Checks if the user has access to delete the given crushftp account.
+ *
+ * @param object $entity
+ *   The entity that will be updated.
+ *
+ * @return bool
+ *   TRUE if the user is allowed to update the entity;
+ *   FALSE if the user is not permitted to update the entity.
+ */
+function _crushftp_delete_access($entity) {
+  global $user;
+
+  // Check if user can delete any account.
+  if (!empty($entity) && user_access('delete any crushftp account')) {
+    return TRUE;
+  }
+
+  // Connecting to external crushftp database in drupal.
+  db_set_active('crushftp');
+  $result = db_select('users', 'u')
+    ->condition('id', $entity)
+    ->condition('createdBy', $user->uid)
+    ->fields('u')
+    ->execute()
+    ->fetchAssoc();
+  // Connecting to default drupal database.
+  db_set_active();
+  if (!empty($result) && user_access('delete any crushftp account')) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+
+/*
+ * Helper : check input password strength.
+ */
+function crushftp_valid_pass($candidate) {
+  // Uppercase.
+  $r1='/[A-Z]/';
+  // Lowercase.
+  $r2='/[a-z]/';  
+  // Special char.
+  $r3='/[!@#$%^&*()-_=+{};:,<.>]/';
+  // Numbers
+  $r4='/[0-9]/';
+
+  if(strlen($candidate) < 6) return FALSE;
+  if(!preg_match($r1,$candidate)) return FALSE;
+  if(!preg_match($r2,$candidate)) return FALSE;
+  if(!preg_match($r3,$candidate)) return FALSE;
+  if(!preg_match($r4,$candidate)) return FALSE;
+  return TRUE;
+}
+
+
+/**
+ * Implements hook_views_api().
+ */
+function crushftp_views_api() {
+  return array(
+    'api' => 3.0,
+    'path' => drupal_get_path('module', 'crushftp') . '/views',
+  );
+}
+

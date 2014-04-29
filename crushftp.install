@@ -1,0 +1,26 @@
+<?php
+
+/**
+ * @file
+ * http://drupal.org/node/410332
+ * http://drupal.org/node/816456
+ * http://drupal.org/node/576694
+ * 
+ * 
+ * 
+ * RULES http://eureka.ykyuen.info/2012/06/29/drupal-7-create-your-own-rules-event/
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function crushftp_uninstall() {
+  // Clear variables.
+  variable_del('crushftp_database_max_idle_time');
+  variable_del('crushftp_max_simultaneous_logins');
+  variable_del('crushftp_max_simultaneous_logins');
+  variable_del('crushftp_max_logins_per_ip');
+  variable_del('crushftp_can_request_files_as_zip');
+  variable_del('crushftp_require_encryption');
+  variable_del('crushftp_mail_from');
+}

@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the CrushFTP Feature feature.
+ */
+
+include_once 'crushftp_feature.features.inc';

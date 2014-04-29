@@ -1,0 +1,13 @@
+name = CrushFTP Feature
+description = CrushFTP Feature
+core = 7.x
+package = crushFTP
+php = 5.2.4
+version = 7.x-1.0-dev4
+project = crushftp_feature
+dependencies[] = ctools
+dependencies[] = views
+datestamp = 1357557609
+features[ctools][] = views:views_default:3.0
+features[features_api][] = api:1
+features[views_view][] = crushftp

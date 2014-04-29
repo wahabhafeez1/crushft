@@ -1,0 +1,1663 @@
+<?php
+/**
+ * @file
+ */
+
+/*
+ * Helper : check input password strength.
+ */
+// this fucntion is calling from crushftp.module file
+require_once DRUPAL_ROOT . '/' . variable_get('password_inc', 'includes/password.inc');
+
+
+/**
+ * Common form.
+ * Used in
+ *  - Add crushftp users
+ *  - Update crushftp users
+ */
+function crushftp_form($crushftp =  NULL) {
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('User Name'),
+  );
+
+   $form['password'] = array(
+    '#type' => 'password',
+    '#title' => t('Password'),
+   ); 
+     $form['password'] = array(
+    '#type' => 'password_confirm',
+    '#title' => t(''),
+    );
+    $form['auto-generate'] = array(
+      '#type' => 'radios',
+      '#title' => t('For auto generate password select yes'),
+      '#options' => array(
+        0 => t('No'),
+        1 => t('Yes'),
+      ),
+      '#default_value' => 0,
+    );
+      //Set account expiry disable in update form
+  /*  $form['update_expiry'] = array(
+      '#type' => 'radios',
+      '#title' => t('Update Account expiry'),
+      '#options' => array(
+        0 => t('No'),
+        1 => t('Yes'),
+      ),
+      '#default_value' => 0,
+    );
+    $form['active'] = array(
+      '#type' => 'select',
+      '#options' => array(30 => t('30 Days'), 60 => t('60 Days'), 90 => t('90 Days'), 31 => t('Unlimited')),
+      '#description' => t('Select the account expiry options'),
+      '#states' => array(
+        'disabled' => array(':input[name="update_expiry"]' => array('value' => 0),
+        ),
+      ),
+    ); */ 
+  $form['active'] = array(
+    '#type' => 'select',
+    '#title' => t('Account Expiry'),
+    '#options' => array(30 => t('30 Days'), 60 => t('60 Days'), 90 => t('90 Days'), 31 => t('Unlimited')),
+    '#description' => t('Select the account expiry options'),
+  );  
+  $form['unlimited_account_notification'] = array(
+    '#type' => 'item',
+    '#markup' => '<b>Request sent to service desk, you are currently set to 30 days expiry</b>',
+    '#states' => array(
+    'visible' => array(':input[name="active"]' => array('value' => 31),
+      ),
+    ),
+  );
+  $form['client'] = array(
+    '#type' =>'textfield',
+    '#title' => t('Client Name'),  
+  );
+  $form['email'] = array(
+    '#type' =>'textfield',
+    '#title' => t('E-mail Address'),  
+  );
+  return $form;  
+}
+/* Functions for multiple email address with + and - button
+ *  -function ajax_example_add_more_add_one($form, &$form_state)
+ *  -function ajax_example_add_more_callback($form, $form_state)
+ *  -function ajax_example_add_more_remove_one($forme, &$form_state)
+ * Used in 
+ *  -function  crushftp_add_form($form, &$form_state, $no_js_use = FALSE)
+ *  -function  crushftp_update_form($form, &$form_state, $no_js_use = FALSE)
+ *  -function  crushftp_adminupdate_form($form, &$form_state, $no_js_use = FALSE)
+ */
+function ajax_example_add_more_add_one($form, &$form_state) {
+  $form_state['num_names']++;
+  $form_state['rebuild'] = TRUE;
+}
+function ajax_example_add_more_callback($form, $form_state) {
+  return $form['names_fieldset'];
+}
+function ajax_example_add_more_remove_one($forme, &$form_state) {
+  if ($form_state['num_names'] > 0) {
+    $form_state['num_names']--;
+  }
+  $form_state['rebuild'] = TRUE;
+}
+/**
+ * Form constructor for the Add crushftp user 
+ *
+ *    Recognized 
+ *    - crushftp_form(); call from common form
+ *    - db_set_active('crushftp'): to connect with external database in drupal 7
+ *
+ * @see crushftp_add_form_validate()
+ * @see crushftp_add_form_submit()
+ * @see crushftp_mail_from_submit()
+ */
+function  crushftp_add_form($form, &$form_state, $no_js_use = FALSE) {
+  // call from common from 
+  $form = crushftp_form();  
+  // Because we have many fields with the same values, we have to set
+  // #tree to be able to access them.
+  $form['#tree'] = TRUE;
+  $form['names_fieldset'] = array(
+    '#prefix' => '<div id="names-fieldset-wrapper">', 
+    '#suffix' => '</div>',
+  );
+  // Build the fieldset with the proper number of names. We'll use
+  // $form_state['num_names'] to determine the number of textfields to build.
+  if (empty($form_state['num_names'])) {
+    $form_state['num_names'] = 0;
+  }	
+  for ($i = 0; $i < $form_state['num_names']; $i++) {
+    $form['names_fieldset']['name'][$i] = array(
+      '#type' => 'textfield', 
+    );
+  }
+  $form['names_fieldset']['add_name'] = array(
+    '#type' => 'submit', 
+    '#value' => t('+'), 
+    '#submit' => array('ajax_example_add_more_add_one'),
+    '#ajax' => array(
+      'callback' => 'ajax_example_add_more_callback', 
+      'wrapper' => 'names-fieldset-wrapper',
+    ),
+  );
+  if ($form_state['num_names'] > 0) {
+    $form['names_fieldset']['remove_name'] = array(
+      '#type' => 'submit', 
+      '#value' => t('-'), 
+      '#submit' => array('ajax_example_add_more_remove_one'), 
+      '#ajax' => array(
+        'callback' => 'ajax_example_add_more_callback', 
+        'wrapper' => 'names-fieldset-wrapper',
+      ),
+    );
+  }
+  $form['names_fieldset']['add'] = array(
+    '#type' => 'markup', 
+    '#markup' => 'Click for additional email addresses to send FTP account details',
+  );
+  if ($no_js_use) {
+    // Remove the #ajax from the above, so ajax.js won't be loaded.
+    if (!empty($form['names_fieldset']['remove_name']['#ajax'])) {
+      unset($form['names_fieldset']['remove_name']['#ajax']);
+    }
+    unset($form['names_fieldset']['add_name']['#ajax']);
+  }
+  // form api select if user select it then client will receive its account details by email 
+  $form['notification'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Notify client of new account'),
+    'default_value' => FALSE,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit', 
+    '#value' => t('Submit'),
+  );
+  return $form;  
+}
+
+/**
+ * Form validation handler for crushftp_add_form().
+ * 
+ * validates input password strength
+ * validate email correction
+ *
+ * @see crushftp_add_form_submit()
+ */
+function crushftp_add_form_validate($form, &$form_state) {
+  /*if (!crushftp_valid_pass($form_state['values']['password'])) {
+    form_set_error('password', t('That password is too simple.'));
+  }*/
+  //validate correct email address
+  $valid_email = $form_state['values']['email'];
+  if (!valid_email_address($valid_email)) {
+    form_set_error('email', 'Sorry. Your email address,' . $valid_email . ', is not valid. Please submit a valid E-mail address.');
+  }
+}
+/**
+ * Form submission handler for crushftp_add_form().
+ * Save add crushftp user details in crushftp database
+ * If notification ckecked in common form()
+ *  - E-mail crushftp add account details to PM and client
+ *
+ *  watchdog(' WATCHDOG_INFO)
+ *  - to make log in drupal database
+ *  -Rules Integration
+ *
+ * @see crushftp_add_form_validate()
+ * @see crushftp_mail_add_user_from_submit()
+ */
+function crushftp_add_form_submit($form, &$form_state,$passwordasd) {
+    $num = 0;
+  //To get Drupal user details
+  global $user;
+  $same_name = $form_state['values']['name'];
+  //$password = $form_state['values']['password'];
+
+  $expire_date = ($form_state['values']['active'] == '0') ? NULL : 
+	Date('Y/m/d  H:i:s', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400));
+  // connecting to external crushftp database in drupal
+  //db_set_active('crushftp');
+  // getting details of crushftp users from 'form Api' drupal in a array to store in crushftp databse
+  //Autogenrate password
+  if($form_state['values']['auto-generate'] == '1'){ 
+  $length=9; $strength=0;
+    $vowels = 'aeiou';
+    $consonants = 'zxcvbnmsdfghjklqwrtyp';
+    if ($strength >= 1) {
+        $consonants .= 'ZXCVBNMSDFGHJKLQWRTYP';
+    }
+    if ($strength >= 2) {
+        $vowels .= "AEIOU";
+    }
+    if ($strength >= 4) {
+        $consonants .= '23456789';
+    }
+    if ($strength >= 8 ) {
+        $vowels .= '@#$%';
+    }
+ 
+    $password = '';
+    $alt = time() % 2;
+    for ($i = 0; $i < $length; $i++) {
+        if ($alt == 1) {
+            $password .= $consonants[(rand() % strlen($consonants))];
+            $alt = 0;
+        } else {
+            $password .= $vowels[(rand() % strlen($vowels))];
+            $alt = 1;
+        }
+    }
+  }
+  else{
+    $password = $form_state['values']['password'];
+  }
+  $mdpassword = md5($password);
+  $mdpassword1 = 'MD5:' . $mdpassword;
+  $mdpassword = md5($password);
+  $mdpassword1 = 'MD5:' . $mdpassword;
+  $entry = array(
+    'username' => $form_state['values']['name'],
+    'password' => $mdpassword1,
+    'server_group' => 'MainUsers',
+    'emailAddress' => $form_state['values']['email'],
+    'clientName' => $form_state['values']['client'], 
+    'createdBy' => $user->uid,
+    'account_expire' => $expire_date,
+    'userPass' => $password,//$form_state['values']['password'],
+    'createdEmail' => $user->mail,
+    'expiry' => $expire_date,
+  );
+  $return_value = NULL;
+  // store crushftp details in crushftp databse in users table
+  db_set_active('crushftp');
+  try {
+    $return_value = db_insert('USERS')			
+                    ->fields($entry)
+                    ->execute();
+    drupal_set_message(t('The FTP user account has been created.'));
+    watchdog('crushftp', 'New crushftp user added (@user)', array('@user' => $user->uid), WATCHDOG_INFO);    
+    $num++;
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('There was a problem creating the FTP user account. Please try again later.'), 'error');
+    drupal_set_message(t('or User name is already exist'), 'error');
+    //drupal_set_message(t('db_insert failed. Message = %message, query= %query',
+    // array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+  //Insert crushftp directories in databse
+  //get crushftp user name to set crushftp dirctories
+  $dir_name = $form_state['values']['name']; 
+  // Connecting to external crushftp database in drupal.
+  db_set_active('crushftp');
+  // Getting crushftp user information which is stored in crushftp database to update values
+  $result = db_select('USERS', 'u')
+            ->condition('username', $dir_name)
+            ->fields('u')
+            ->execute()
+            ->fetchAssoc();
+  $dir_id = $result['userid'];
+  //For crushftp user acount expiry, it change data type of 'textfield' to 'Datetime'  
+  $expire_date = ($form_state['values']['active'] == '0') ? NULL : 
+	Date('m/d/Y  h:i A', REQUEST_TIME + ((int)   $form_state['values']['active'] * 86400));
+  
+  $mail = $form_state['values']['email'].','.$user->mail;
+  // Insert values in table user_properties 
+  $values = array(
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'user_name',
+      'prop_value' => $form_state['values']['name'],
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'email',
+      'prop_value' => $form_state['values']['email'],
+    ),
+    array(
+      'userid' =>  $dir_id, 
+      'prop_name' => 'parent_quota_dir', 
+      'prop_value' => variable_get('crushftp_per_account_quota', ''),
+    ),	
+    array(
+      'userid' =>  $dir_id, 
+      'prop_name' => 'max_login_time', 
+      'prop_value' => variable_get('crushftp_database_max_login_time', 0),
+	),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'max_logins_ip',
+      'prop_value' => variable_get('crushftp_max_logins_per_ip', 0),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'logins_ip_auto_kick',
+      'prop_value' => variable_get('crushftp_require_encryption', FALSE),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'max_logins',
+      'prop_value' => variable_get('crushftp_max_simultaneous_logins', 0),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'max_idle_time',
+      'prop_value' => variable_get('crushftp_database_max_idle_time', 10),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'account_expire',
+      'prop_value' => $expire_date,
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'account_expire_rolling_days',
+      'prop_value' => variable_get('crushftp_account_expire_rolling_days', ''),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'account_expire_delete',
+      'prop_value' =>  variable_get('crushftp_account_expire_delete', FALSE),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'expire_password_days',
+      'prop_value' =>  variable_get('crushftp_expire_password_days', 60),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'expire_password_when',
+      'prop_value' =>  Date('m/d/Y  h:i A', REQUEST_TIME + ((int)   variable_get('crushftp_expire_password_days', 60) * 86400)),
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'root_dir',
+      'prop_value' => '/',
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'userVersion',
+      'prop_value' => 6,
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'version',
+      'prop_value' => 1.0,
+    ),
+    array(
+      'userid' => $dir_id,
+      'prop_name' => 'publickey_password',
+      'prop_value' => FALSE,
+    ),
+  );
+  $return_value = NULL;
+  // store crushftp details in crushftp databse in users table
+  try {
+    $return_value = db_insert('USER_PROPERTIES')
+                    ->fields(array('userid', 'prop_name', 'prop_value'));
+                    foreach ($values as $record) {
+	              $return_value->values($record);
+		    }
+                    $return_value->execute();
+    //drupal_set_message(t('The crushftp user has been created.'));
+    watchdog('crushftp', 'New crushftp user add in user_properties table (@user)', array('@user' => $user->uid), WATCHDOG_INFO);
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('db_insert failed. Message = %message, query= %query',
+     array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+    // Insert values in table events 
+  $values = array(
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'name',
+      'prop_value' => 'last_login',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_plugin_list',
+      'prop_value' => 'CrushTask',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_if_cb',
+      'prop_value' => 'false',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_now_cb',
+      'prop_value' => 'true',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_after_cb',
+      'prop_value' => 'false',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_always_cb',
+      'prop_value' => 'true',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_always_cb',
+      'prop_value' => 'true',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'id',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'enabled',
+      'prop_value' => 'false',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_user_action_list',
+      'prop_value' => '(connect)',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'version',
+      'prop_value' => '1',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_action_list',
+      'prop_value' => '(run_plugin)',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'pluginName',
+      'prop_value' => 'CrushTask',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'linkEvent',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'bcc',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_after_list',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'from',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'body',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'cc',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'linkUser',
+      'prop_value' => '',
+    ),
+     array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'subject',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'to',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_if_list',
+      'prop_value' => '',
+    ),
+    array(
+      'userid' => $dir_id,
+      'event_name' => 'last_login',
+      'prop_name' => 'event_dir_data',
+      'prop_value' => '',
+    ),
+  );
+  $return_value = NULL;
+  // connecting to external crushftp database in drupal
+  db_set_active('crushftp');
+  // store crushftp details in crushftp databse in events table
+  try {
+    $return_value = db_insert('EVENTS5')
+                    ->fields(array('userid', 'event_name', 'prop_name', 'prop_value'));
+                    foreach ($values as $record) {
+	              $return_value->values($record);
+		    }
+                    $return_value->execute();
+    //drupal_set_message(t('The crushftp user has been created.'));
+    watchdog('crushftp', 'New crushftp last login event (@user)', array('@user' => $user->uid), WATCHDOG_INFO);
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('db_insert failed. Message = %message, query= %query',
+     array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+/*
+  //calculate percentage of crushftp Accounts
+  // Seperate number from units ( br my bytes etc) to calculate percentage
+  $string=variable_get('crushftp_ftp_size', '2 GB');
+  $chars = '';
+  $nums = '';
+  for ($index=0;$index<strlen($string);$index++) {
+    if(isNumber($string[$index]))
+      $nums .= $string[$index];
+    else    
+      $chars .= $string[$index];
+  }
+  // echo "Chars: -$chars-<br>Nums: -$nums-";
+  function isNumber($c) {
+    return preg_match('/[0-9]/', $c);
+  } 
+  $eighty_percent = ($nums * 80) / 100;
+  $ninety_percent = ($nums * 90) / 100;
+  $eighty_five_percent = ($nums * 95) / 100;  
+  // concatinate numbers with units (GB MB etc)
+  $eighty_percent = $eighty_percent . $chars;
+  $ninety_percent = $ninety_percent . $chars;
+  $eighty_five_percent = $eighty_five_percent . $chars;
+*/ 
+  // Rules interaction 
+  $ccemail = t('@names', 
+    array('@names' => implode(', ', $form_state['values']['names_fieldset']['name'])) );
+  $entry = array(
+    'user_name' => $form_state['values']['name'],
+    'password' => $form_state['values']['password'],
+    'expiration_date' => REQUEST_TIME + ((int) $form_state['values']['active'] * 86400),
+    'expiration_date_email' => ($form_state['values']['active'] == '0') ? NULL : 
+      Date('M d Y', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400)),
+    'email'  => $form_state['values']['email'],
+    'client_name'  => $form_state['values']['client'],
+    'cc_email'  =>  $ccemail,
+    'userid' => $dir_id,
+    'PM' => $user->name,
+    'expiry_term'  => $form_state['values']['active'],
+    'ftp_size' => variable_get('crushftp_ftp_size', '2 GB'),
+  //  '$eighty_percent' =>  $eighty_percent,
+  //  '$ninety_percent' =>  $ninety_percent,
+  //  '$ninety_five_percent' =>  $ninety_five_percent,
+  );
+  if($num == 1){    
+    // Rules interaction.
+    rules_invoke_event('crushftp_insert', $user, $entry); 
+    //Email function call in submit function
+    if($form_state['values']['notification'] <> FALSE) {
+      // Rules interaction.
+      rules_invoke_event('crushftp_send_email_add_new_user', $user, $entry);
+    }
+    //Email function call in submit function for unlimited account
+    if($form_state['values']['active'] == '31') {
+    // Rules interaction.
+    rules_invoke_event('crushftp_send_email_for_unlimited_account', $user, $entry);
+    drupal_set_message(t('The FTP user account has been created with a temporary 30 day expiry date. '));
+    drupal_set_message(t('Please wait for Helpdesk to set the expiry date to unlimited and allocate folder size quota for this account.'));
+    }   
+  }
+
+}
+
+/**
+ * Form constructor for the update crushftp user account 
+ *
+ * @param $id
+ *   $id is to be updated. 
+ *    Recognized 
+ *   - $id: The id of crushftp user in crushftp database
+ *   - crushftp_form();: A common form for crushftp user
+ *   - $result: getting values from crushftp database
+ *   - db_set_active('crushftp'): to connect with external database in drupal 7
+ *
+ * @see crushftp_update_form_validate()
+ * @see crushftp_update_form_submit()
+ * @ingroup forms
+ */
+function crushftp_update_form($form, &$form_state, $id, $no_js_use = FALSE) {
+  // Connecting to external crushftp database in drupal.
+  db_set_active('crushftp');
+  // Getting crushftp user information which is stored in crushftp database to update values
+  $result = db_select('USERS', 'u')
+            ->condition('userid', $id)
+            ->fields('u')
+            ->execute()
+            ->fetchAssoc();
+  // Connecting to default drupal database.
+  db_set_active();
+  if ($result) {    
+    $form['userid'] = array(
+      '#type' => 'hidden',
+      '#default_value' => $result['userid'],
+      '#title' => t('ID'),
+    );
+    $form['name'] = array(
+      '#type' => 'textfield',
+      '#title' => t('User Name'),
+    );
+    // for update crushftp user password instructions 
+    $form['password'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Password'),
+      '#description' => t('If you do not want to change password then please leave password field emplty'),
+    );
+    $form['account_expire'] = array(
+      '#type' => 'textfield',
+      '#default_value' => $result['account_expire'],
+      '#title' => t('Account expiry'),
+      '#disabled' => TRUE,
+    );
+    //Set account expiry disable in update form
+    $form['update_expiry'] = array(
+      '#type' => 'radios',
+      '#title' => t('Update Account expiry'),
+      '#options' => array(
+        0 => t('No'),
+        1 => t('Yes'),
+      ),
+      '#default_value' => 0,
+    );
+    $form['active'] = array(
+      '#type' => 'select',
+      '#options' => array(30 => t('30 Days'), 60 => t('60 Days'), 90 => t('90 Days'), 31 => t('Unlimited')),
+      '#description' => t('Select the account expiry options'),
+      '#states' => array(
+        'disabled' => array(':input[name="update_expiry"]' => array('value' => 0),
+        ),
+      ),
+    );  
+    $form['unlimited_account_notification'] = array(
+      '#type' => 'item',
+      '#markup' => '<b>Request sent to service desk, you are currently set to 30 days expiry</b>',
+      '#states' => array(
+        'visible' => array(':input[name="active"]' => array('value' => 31),
+        ),
+      ),
+    );
+    $form['client'] = array(
+      '#type' =>'textfield',
+      '#title' => t('Client Name'),  
+    );
+    $form['email'] = array(
+      '#type' =>'textfield',
+      '#title' => t('E-mail Address'),  
+    );
+    // Default values.
+    $form['name']['#default_value'] = $result['username'];
+    $form['password']['#default_value'] = $result['userPass'];    
+    $form['email']['#default_value'] = $result['emailAddress'];
+    $form['client']['#default_value'] = $result['clientName'];
+    // Because we have many fields with the same values, we have to set
+    // #tree to be able to access them.
+    $form['#tree'] = TRUE;
+    $form['names_fieldset'] = array(
+    '#prefix' => '<div id="names-fieldset-wrapper">', 
+    '#suffix' => '</div>',
+  );
+  // Build the fieldset with the proper number of names. We'll use
+  // $form_state['num_names'] to determine the number of textfields to build.
+  if (empty($form_state['num_names'])) {
+    $form_state['num_names'] = 0;
+  }	
+  for ($i = 0; $i < $form_state['num_names']; $i++) {
+    $form['names_fieldset']['name'][$i] = array(
+      '#type' => 'textfield', 
+    );
+  }
+  $form['names_fieldset']['add_name'] = array(
+    '#type' => 'submit', 
+    '#value' => t('+'), 
+    '#submit' => array('ajax_example_add_more_add_one'),
+    // See the examples in ajax_example.module for more details on the
+    // properties of #ajax. 
+    '#ajax' => array(
+      'callback' => 'ajax_example_add_more_callback', 
+      'wrapper' => 'names-fieldset-wrapper',
+    ),
+  );
+  if ($form_state['num_names'] > 0) {
+    $form['names_fieldset']['remove_name'] = array(
+      '#type' => 'submit', 
+      '#value' => t('-'), 
+      '#submit' => array('ajax_example_add_more_remove_one'), 
+      '#ajax' => array(
+        'callback' => 'ajax_example_add_more_callback', 
+        'wrapper' => 'names-fieldset-wrapper',
+      ),
+    );
+  }
+  $form['names_fieldset']['add'] = array(
+    '#type' => 'markup', 
+    '#markup' => 'Click for additional email addresses to send FTP account details',
+  );
+  // This simply allows us to demonstrate no-javascript use without
+  // actually turning off javascript in the browser. Removing the #ajax
+  // element turns off AJAX behaviors on that element and as a result
+  // ajax.js doesn't get loaded.
+  // For demonstration only! You don't need this.
+  if ($no_js_use) {
+    // Remove the #ajax from the above, so ajax.js won't be loaded.
+    if (!empty($form['names_fieldset']['remove_name']['#ajax'])) {
+      unset($form['names_fieldset']['remove_name']['#ajax']);
+    }
+    unset($form['names_fieldset']['add_name']['#ajax']);
+  }
+  // form api select if user select it then client will receive its updated account details by email 
+  $form['notification'] = array(
+     '#type' => 'checkbox',
+     '#title' => t('Notify user of update account'),
+     'default_value' => FALSE,
+   );
+
+ $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Update the FTP account'),
+    );
+    return $form;  
+  }
+  else {
+    form_set_error(t('You can not update crushftp user right now. Please try again later.'), 'error');
+  } 
+}
+
+/**
+ * Form validation handler for crushftp_update_form().
+ * 
+ * validates input password strength
+ * validate email correction
+ *
+ * @see crushftp_update_form_submit()
+ */
+function crushftp_update_form_validate($form, &$form_state) {
+  if (!crushftp_valid_pass($form_state['values']['password'])) {
+    form_set_error('password', t('That password is too simple.'));
+  }
+  // validates correctness of email address
+  $valid_email = $form_state['values']['email'];
+  if (!valid_email_address($valid_email)) {
+    form_set_error('email', 'Sorry. Your email address,' . $valid_email . ', is not valid. Please submit a valid E-mail address.');
+  }
+}
+
+/**
+ * Form submission handler for crushftp_update_form().
+ * Save updated crushftp user details in crushftp database
+ * If notification ckecked in common doem()
+ *  -E-mail crushftp updated account details to PM and client
+ * watchdog(' WATCHDOG_INFO)
+ *  - to make log in drupal database
+ * @see crushftp_update_form_validate()
+ * @see crushftp_mail_update_user_from_submit()
+ */
+function crushftp_update_form_submit($form, &$form_state) {
+    $num = 0;
+  //For crushftp user acount expiry, it change data type of 'textfield' to 'Datetime'
+  $expire_date = ($form_state['values']['active'] == '0') ? NULL : Date('m/d/Y  H:i:s', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400)); 
+  global $user;
+  $password = $form_state['values']['password'];
+  $mdpassword = md5($password);
+  $mdpassword1 = 'MD5:' .$mdpassword;
+  // connecting to external crushftp database in drupal	
+  db_set_active('crushftp');
+  $entry = array(
+    'username' => $form_state['values']['name'],
+    'password'  => $mdpassword1,
+    'userPass'  => $form_state['values']['password'],
+    'emailAddress'  => $form_state['values']['email'],
+    'clientName'  => $form_state['values']['client'],
+    'createdBy'  => $user->uid,  
+    'createdEmail' => $user->mail,
+  );
+  $return_value = NULL;
+  //To get crushftp user Id because Id is uniq and crushftp user account will change values with respect to crushftp user 'id'
+  $user_id = $form_state['values']['userid'];
+  // store edited crushftp details in crushftp databse in users table
+  try {
+    $return_value = db_update('USERS')
+                    ->condition('userid', $user_id)
+                    ->fields ($entry)
+                    ->execute();
+    drupal_set_message(t('FTP account details have been updated.'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+    $num++;
+  }
+  catch (Exception $e) {
+  	drupal_set_message(t('There was a problem updating the FTP user account. Please try again later.'), 'error');
+    drupal_set_message(t('db_update failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+ 
+  // user modification time stamp 
+  $modify_date = Date('m/d/Y  H:i:s');
+    // connecting to external crushftp database in drupal	
+  db_set_active('crushftp');
+  $entry = array(
+    'SERVER_GROUP' => 'MainUsers',
+    'prop_name' => 'USERS',
+    'prop_value' => $modify_date,
+  ); 
+    $return_value = NULL;
+  // store crushftp details in crushftp databse in users table
+  try {			
+    $return_value = db_update('MODIFIED_TIMES')
+                    ->condition('prop_name', 'USERS')
+                    ->fields ($entry)
+                    ->execute();
+    //drupal_set_message(t('Crushftp user details has been updated'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+  }
+  catch (Exception $e) {
+   // drupal_set_message(t('Your can not update crushftp user right now. Please try again later.'), 'error');
+    drupal_set_message(t('db_update failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+  // connecting to external crushftp database in drupal	
+  db_set_active('crushftp');
+  $entry = array(
+	  'userid' => $user_id,
+	  'prop_name' => 'user_name',
+	  'prop_value' => $form_state['values']['name'],
+  );
+  $return_value = NULL;
+  // store edited crushftp details in crushftp databse in user_properties table
+  try {
+    $return_value = db_update('USER_PROPERTIES')
+                    ->condition('userid', $user_id)
+                    ->condition('prop_name', 'user_name')
+                    ->fields ($entry)
+                    ->execute();
+    //drupal_set_message(t('Crushftp user details has been updated'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('There was a problem updating the FTP user account Name. Please try again later.'), 'error');
+    drupal_set_message(t('db_update failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+ 
+  if($form_state['values']['update_expiry'] == 1){
+    //Update Account expiry in table user_properties
+    $expire_date = ($form_state['values']['active'] == '0') ? NULL : 
+  	Date('m/d/Y  h:i A', REQUEST_TIME + ((int)   $form_state['values']['active'] * 86400));	
+    // connecting to external crushftp database in drupal	
+    db_set_active('crushftp');
+    $entry = array(
+      'userid' => $user_id,
+      'prop_name' => 'account_expire',
+      'prop_value' => $expire_date,
+    );
+    $return_value = NULL;
+    // store edited crushftp details in crushftp databse in user_properties table
+    try {
+      $return_value = db_update('USER_PROPERTIES')
+                      ->condition('userid', $user_id)
+                      ->condition('prop_name', 'account_expire')
+                      ->fields ($entry)
+                      ->execute();
+      //drupal_set_message(t('Crushftp user details has been updated'));  
+      watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+    }
+    catch (Exception $e) {
+      drupal_set_message(t('There was a problem updating the FTP user account account expiry. Please try again later.'), 'error');
+      drupal_set_message(t('db_update failed. Message = %message, query= %query',
+        array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+    }
+    // Connecting to default drupal database.
+    db_set_active();
+    //For crushftp user acount expiry, it change data type of 'textfield' to 'Datetime'
+    $expire_date = ($form_state['values']['active'] == '0') ? NULL : 
+      Date('Y/m/d  H:i:s', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400)); 
+    global $user;
+    // connecting to external crushftp database in drupal	
+    db_set_active('crushftp');
+    $entry = array(
+      'account_expire' => $expire_date,
+      'expiry' => $expire_date,
+    );
+    $return_value = NULL;
+    //To get crushftp user Id because Id is uniq and crushftp user account will change values with respect to crushftp user 'id'
+    $user_id = $form_state['values']['userid'];
+    // store edited crushftp details in crushftp databse in users table
+    try {
+      $return_value = db_update('USERS')
+                      ->condition('userid', $user_id)
+                      ->fields ($entry)
+                      ->execute();
+     // drupal_set_message(t('FTP user details has been updated'));  
+      watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+    }
+    catch (Exception $e) {
+      drupal_set_message(t('There was a problem updating the FTP user account expire date. Please try again later.'), 'error');
+      drupal_set_message(t('db_update failed. Message = %message, query= %query',
+        array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+    }
+    // Connecting to default drupal database.
+    db_set_active();
+  } 
+  // Rules interaction.
+  $ccemail = t('@names', 
+    array('@names' => implode(', ', $form_state['values']['names_fieldset']['name'])) );
+  $entry = array(
+    'user_name' => $form_state['values']['name'],
+    'password' => $form_state['values']['password'],
+    'expiration_date' =>  REQUEST_TIME + ((int) $form_state['values']['active'] * 86400),
+    'expiration_date_email' => $form_state['values']['account_expire'],
+      //($form_state['values']['active'] == '0') ? NULL : 
+     //Date('M d Y', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400)),
+    'email'  => $form_state['values']['email'],
+    'client_name'  => $form_state['values']['client'],
+    'cc_email'  => $ccemail,
+    'userid' => $user_id,
+    'expiry_term'  => $form_state['values']['active'],
+  );
+  if($num = 1) {
+    rules_invoke_event('crushftp_update', $user, $entry);
+    //Email function call in submit function
+    if($form_state['values']['notification'] <> FALSE) {
+      // Rules interaction.
+      rules_invoke_event('crushftp_send_email_account_update', $user, $entry);
+    }
+    //Email function call in submit function for unlimited account
+    if($form_state['values']['active'] == '31') {
+    // Rules interaction.
+    rules_invoke_event('crushftp_send_email_for_updated_unlimited_account', $user, $entry);
+    drupal_set_message(t('The FTP user account has been created with a temporary 30 day expiry date.'));
+    drupal_set_message(t('Please wait for Helpdesk to set the expiry date to unlimited and allocate folder size quota for this account.'));
+    }
+    if($form_state['values']['update_expiry'] == 1){
+      rules_invoke_event('crushftp_update_expiry_date', $user, $entry);
+        
+    }
+  }
+}
+
+/**
+ * Form constructor for the crushftp user deletion form.
+ *
+ * @param $id
+ *   crushftp user uniq $id  to be deleted. 
+ *   checks $id from crushfto databse and delete crushftp user from crushftp database
+ *
+ * @see crushftp_delete_form_submit()
+ */
+function crushftp_delete_form($form, &$form_state, $id) {
+  // Connecting to external crushftp database in drupal.
+  db_set_active('crushftp');
+  $result = db_select('USERS', 'u')
+            ->condition('userid', $id)
+            ->fields('u')
+            ->execute()
+            ->fetchAssoc();
+  // Connecting to default drupal database.
+  db_set_active();
+  if ($result) {
+    $form['id'] = array(
+      '#type' => 'hidden',
+      '#default_value' => $result['userid'],
+      '#title' => t('ID'),
+    );
+    $form['username'] = array(
+      '#type' => 'textfield',  
+      '#default_value' => $result['username'],
+      '#title' => t('User Name'),
+      '#description' => t("Are you sure you want to delete this account? This action cannot be undone."),
+      '#disabled' => TRUE,
+    );
+    $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Delete the FTP account'),
+    );
+    return $form;  
+  }
+  else {
+     form_set_error(t('Sorry, this account cannot be deleted right now. Please try again later.'));
+  }
+}  
+/**
+ * Form submission handler for crushftp_delete_form().
+ * 
+ * watchdog(' WATCHDOG_INFO)
+ *  - to make log in drupal database
+ * Delete crushftp user details in crushftp database
+ */
+  function crushftp_delete_form_submit($form, &$form_state) {
+  global $user;
+  //To get crushftp user id for compaire it with crushftp database
+  $user_id = array('userid' => $form_state['values']['id'],);  
+  // Connecting to external crushftp database in drupal. to send deleted account details to PM by using Rules module
+  db_set_active('crushftp');
+  $result = db_select('USERS', 'u')
+            ->condition('userid', $user_id)
+            ->fields('u')
+            ->execute()
+            ->fetchAssoc();
+  // Connecting to default drupal database.
+  db_set_active();
+  // Rules interaction.
+  $entry = array(
+    'user_name' => $result['username'],
+    'password' => $result['userPass'],
+    'email'  => $result['emailAddress'],
+    'client_name'  => $result['clientName'],
+  );
+  // Rules interaction.
+  rules_invoke_event('crushftp_delete', $user, $entry);
+
+  $return_value = NULL;
+  // to active external crushftp database in drupal  
+  db_set_active('crushftp');
+  // Delete crushftp user account in crushftp databse in users table
+  try {
+    $return_value = db_delete('USERS')
+                    ->condition ('userid', $user_id)
+                    ->execute();
+    drupal_set_message(t('The FTP user account has been deleted.'));
+    watchdog('crushftp', 'Crushftp user ccount has been deleted (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('Sorry, this account cannot be deleted right now. Please try again later.'));
+    drupal_set_message(t('db_delete failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Delete crushftp user account in crushftp databse in 'WEB_BUTTONS' table
+  try {
+    $return_value = db_delete('WEB_BUTTONS')
+                    ->condition ('userid', $user_id)
+                    ->execute();
+    //drupal_set_message(t('The crushfto user account has been deleted.'));
+    watchdog('crushftp', 'Crushftp user ccount has been deleted (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('Sorry, this account cannot be deleted right now. Please try again later.'));
+    drupal_set_message(t('db_delete failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Delete crushftp user account in crushftp databse in 'user_properties' table
+  try {
+    $return_value = db_delete('USER_PROPERTIES')
+                    ->condition ('userid', $user_id)
+                    ->execute();
+    //drupal_set_message(t('The crushfto user account has been deleted.'));
+    watchdog('crushftp', 'Crushftp user ccount has been deleted (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('Sorry, this account cannot be deleted right now. Please try again later.'));
+    drupal_set_message(t('db_delete failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Delete crushftp user account in crushftp databse in 'VFS_PERMISSIONS' table
+  try {
+    $return_value = db_delete('VFS_PERMISSIONS')
+                    ->condition ('userid', $user_id)
+                    ->execute();
+    //drupal_set_message(t('The crushfto user account has been deleted.'));
+    watchdog('crushftp', 'Crushftp user ccount has been deleted (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('Sorry, this account cannot be deleted right now. Please try again later.'));
+    drupal_set_message(t('db_delete failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+ // Delete crushftp user account in crushftp databse in 'VFS' table
+  try {
+    $return_value = db_delete('VFS')
+                    ->condition ('userid', $user_id)
+                    ->execute();
+    //drupal_set_message(t('The crushfto user account has been deleted.'));
+    watchdog('crushftp', 'Crushftp user ccount has been deleted (@user)', array('@user' => $user->uid), WATCHDOG_INFO); 
+  }
+  catch (Exception $e) {
+  	drupal_set_message(t('Sorry, this account cannot be deleted right now. Please try again later.'));
+    drupal_set_message(t('db_delete failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // to active drupal databse 
+  db_set_active();
+
+}
+
+
+/**
+ * Form constructor for the Admin update crushftp user account 
+ *
+ * @param $id
+ *   $id is to be updated. 
+ *    Recognized 
+ *   - $id: The id of crushftp user in crushftp database
+ *   - crushftp_form();: A common form for crushftp user
+ *   - $result: getting values from crushftp database
+ *   - db_set_active('crushftp'): to connect with external database in drupal 7
+ *
+ * @see crushftp_adminupdate_form_validate()
+ * @see crushftp_adminupdate_form_submit()
+ * @ingroup forms
+ */
+function crushftp_update_admin_site_form($form, &$form_state, $id, $no_js_use = FALSE) {
+// Connecting to external crushftp database in drupal.
+  db_set_active('crushftp');
+  // Getting crushftp user information which is stored in crushftp database to update values
+  $result = db_select('USERS', 'u')
+            ->condition('userid', $id)
+      
+            ->fields('u')
+            ->execute()
+            ->fetchAssoc();
+  // Connecting to default drupal database.
+  db_set_active();
+  if ($result) {
+ // $form = crushftp_form();
+    $form['id'] = array(
+      '#type' => 'hidden',
+      '#default_value' => $result['userid'],
+      '#title' => t('ID'),
+    );
+    $form['createdemail'] = array(
+      '#type' => 'hidden',
+      '#default_value' => $result['createdEmail'],
+      '#title' => t('PM E-mail Address'),
+    );
+    $form['name'] = array(
+      '#type' => 'textfield',
+      '#title' => t('User Name'),
+    );
+    // for update crushftp user password instructions 
+    $form['password'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Password'),
+      '#description' => t('If you do not want to change password then please leave password field emplty'),
+    );
+    $form['account_expire'] = array(
+      '#type' => 'textfield',
+      '#default_value' => $result['account_expire'],
+      '#title' => t('Account expiry'),
+      '#disabled' => TRUE,
+    );
+    $form['update_expiry'] = array(
+      '#type' => 'radios',
+      '#title' => t('Update Account expiry'),
+      '#options' => array(
+        0 => t('No'),
+        1 => t('Yes'),
+      ),
+      '#default_value' => 0,
+    );
+    $form['active'] = array(
+      '#type' => 'select',
+    '#options' => array(
+        30 => t('30 Days'), 
+        60 => t('60 Days'), 
+        90 => t('90 Days'), 
+        0 => t('Unlimited')
+      ),
+      '#description' => t('Select the account expiry options'),
+      '#states' => array(
+        'disabled' => array(':input[name="update_expiry"]' => array('value' => 0),
+        ),
+      ),
+    );  
+    $form['client'] = array(
+      '#type' =>'textfield',
+      '#title' => t('Client Name'),  
+    );
+    $form['email'] = array(
+      '#type' =>'textfield',
+      '#title' => t('E-mail Address'),  
+    );
+    // Default values.
+    $form['name']['#default_value'] = $result['username'];
+    $form['password']['#default_value'] = $result['userPass'];    
+    $form['email']['#default_value'] = $result['emailAddress'];
+    $form['client']['#default_value'] = $result['clientName'];
+    // Because we have many fields with the same values, we have to set
+    // #tree to be able to access them.
+  $form['#tree'] = TRUE;
+  $form['names_fieldset'] = array(
+    '#prefix' => '<div id="names-fieldset-wrapper">', 
+    '#suffix' => '</div>',
+  );
+  // Build the fieldset with the proper number of names. We'll use
+  // $form_state['num_names'] to determine the number of textfields to build.
+  if (empty($form_state['num_names'])) {
+    $form_state['num_names'] = 0;
+  }	
+  for ($i = 0; $i < $form_state['num_names']; $i++) {
+    $form['names_fieldset']['name'][$i] = array(
+      '#type' => 'textfield', 
+    );
+  }
+  $form['names_fieldset']['add_name'] = array(
+    '#type' => 'submit', 
+    '#value' => t('+'), 
+    '#submit' => array('ajax_example_add_more_add_one'),
+    // See the examples in ajax_example.module for more details on the
+    // properties of #ajax. 
+    '#ajax' => array(
+      'callback' => 'ajax_example_add_more_callback', 
+      'wrapper' => 'names-fieldset-wrapper',
+    ),
+  );
+  if ($form_state['num_names'] > 0) {
+    $form['names_fieldset']['remove_name'] = array(
+      '#type' => 'submit', 
+      '#value' => t('-'), 
+      '#submit' => array('ajax_example_add_more_remove_one'), 
+      '#ajax' => array(
+        'callback' => 'ajax_example_add_more_callback', 
+        'wrapper' => 'names-fieldset-wrapper',
+      ),
+    );
+  }
+  $form['names_fieldset']['add'] = array(
+    '#type' => 'markup', 
+    '#markup' => 'Click for additional email addresses to send FTP account details',
+  );
+  // This simply allows us to demonstrate no-javascript use without
+  // actually turning off javascript in the browser. Removing the #ajax
+  // element turns off AJAX behaviors on that element and as a result
+  // ajax.js doesn't get loaded.
+  // For demonstration only! You don't need this.
+  if ($no_js_use) {
+    // Remove the #ajax from the above, so ajax.js won't be loaded.
+    if (!empty($form['names_fieldset']['remove_name']['#ajax'])) {
+      unset($form['names_fieldset']['remove_name']['#ajax']);
+    }
+    unset($form['names_fieldset']['add_name']['#ajax']);
+  }
+  // form api select if user select it then client will receive its updated account details by email 
+  $form['notification'] = array(
+     '#type' => 'checkbox',
+     '#title' => t('Notify user of update account'),
+     'default_value' => FALSE,
+   );
+
+ $form['submit'] = array(
+   '#type' => 'submit',
+   '#value' => t('Update the FTP account'),
+ );
+    return $form;  
+  }
+  else {
+    form_set_error(t('You can not update crushftp user right now. Please try again later.'), 'error');
+  }
+}
+
+/**
+ * Form validation handler for crushftp_adminupdate_form().
+ * 
+ * validates input password strength
+ * validate email correction
+ *
+ * @see crushftp_adminupdate_form_submit()
+ */
+function crushftp_update_admin_site_form_validate($form, &$form_state) {
+  if (!crushftp_valid_pass($form_state['values']['password'])) {
+    form_set_error('password', t('That password is too simple.'));
+  }
+  // validates correctness of email address
+  $valid_email = $form_state['values']['email'];
+  if (!valid_email_address($valid_email)) {
+    form_set_error('email', 'Sorry. Your email address,' . $valid_email . ', is not valid. Please submit a valid E-mail address.');
+  }
+}
+
+/**
+ * Form submission handler for crushftp_update_form().
+ * Save updated crushftp user details in crushftp database
+ * If notification ckecked in common doem()
+ *  -E-mail crushftp updated account details to PM and client
+ * watchdog(' WATCHDOG_INFO)
+ *  - to make log in drupal database
+ * @see crushftp_update_form_validate()
+ * @see crushftp_mail_update_user_from_submit()
+ */
+function crushftp_update_admin_site_form_submit($form, &$form_state) {
+  //For crushftp user acount expiry, it change data type of 'textfield' to 'Datetime'
+  global $user;
+  $password = $form_state['values']['password'];
+  $mdpassword = md5($password);
+  $mdpassword1 = 'MD5:' .$mdpassword;
+  // connecting to external crushftp database in drupal	
+  $expire_date = ($form_state['values']['active'] == '0') ? NULL : 
+    Date('Y/m/d  H:i:s', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400));
+  db_set_active('crushftp');
+  $entry = array(
+    'username' => $form_state['values']['name'],
+    'password'  => $mdpassword1,
+    'userPass'  => $form_state['values']['password'],
+    'emailAddress'  => $form_state['values']['email'],
+    'clientName'  => $form_state['values']['client'],
+   // 'account_expire'  => $expire_date,
+    //'expiry'  => $expire_date,
+    'createdBy' => $user->uid,  
+  );
+  $return_value = NULL;
+  //To get crushftp user Id because Id is uniq and crushftp user account will change values with respect to crushftp user 'id'
+  $user_id = $form_state['values']['id'];
+  // store edited crushftp details in crushftp databse in users table
+  try {
+    $return_value = db_update('USERS')
+                    ->condition('userid', $user_id)
+                    ->fields ($entry)
+                    ->execute();
+    drupal_set_message(t('Crushftp user details has been updated'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+  }
+  catch (Exception $e) {
+  	drupal_set_message(t('Your can not update crushftp user right now. Please try again later.'), 'error');
+    drupal_set_message(t('db_update failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+ 
+   // user modification time stamp
+    //For crushftp user acount expiry, it change data type of 'textfield' to 'Datetime'  
+  $modify_date = Date('m/d/Y  H:i:s');
+    // connecting to external crushftp database in drupal	
+  db_set_active('crushftp');
+  $entry = array(
+    'SERVER_GROUP' => 'MainUsers',
+    'prop_name' => 'USERS',
+    'prop_value' => $modify_date,
+  ); 
+  $return_value = NULL;
+  // store crushftp details in crushftp databse in users table
+  try {			
+    $return_value = db_update('MODIFIED_TIMES')
+                    ->condition('prop_name', 'USERS')
+                    ->fields ($entry)
+                    ->execute();
+    drupal_set_message(t('Crushftp user details has been updated'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('Your can not update crushftp user right now. Please try again later.'), 'error');
+    drupal_set_message(t('db_update failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+ // Getting crushftp user information which is stored in crushftp database to update values
+  // connecting to external crushftp database in drupal	
+  db_set_active('crushftp');
+  $entry = array(
+	  'userid' => $user_id,
+	  'prop_name' => 'user_name',
+	  'prop_value' => $form_state['values']['name'],
+  );
+  $return_value = NULL;
+  // store edited crushftp details in crushftp databse in user_properties table
+  try {
+    $return_value = db_update('USER_PROPERTIES')
+                    ->condition('userid', $user_id)
+                    ->condition('prop_name', 'user_name')
+                    ->fields ($entry)
+                    ->execute();
+    drupal_set_message(t('FTP user details has been updated'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('Your can not update crushftp user right now. Please try again later.'), 'error');
+    drupal_set_message(t('db_update failed. Message = %message, query= %query',
+      array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+  }
+  // Connecting to default drupal database.
+  db_set_active();
+  //update Admin site Account expiry
+  if( $form['values']['update_expiry'] == 1){
+    //Update Account expiry in table user_properties
+    $expire_date = ($form_state['values']['active'] == '0') ? NULL : 
+      Date('m/d/Y  H:i A', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400)); 
+    // connecting to external crushftp database in drupal	
+    db_set_active('crushftp');
+    $entry = array(
+      'userid' => $user_id,
+        'prop_name' => 'account_expire',
+	'prop_value' => $expire_date,
+    );
+    $return_value = NULL;
+    // store edited crushftp details in crushftp databse in user_properties table
+    try {
+      $return_value = db_update('USER_PROPERTIES')
+                      ->condition('userid', $user_id)
+                      ->condition('prop_name', 'account_expire')
+                      ->fields ($entry)
+                      ->execute();
+    //drupal_set_message(t('Crushftp user details has been updated'));  
+    watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+    }
+    catch (Exception $e) {
+      drupal_set_message(t('Your can not update crushftp user right now. Please try again later.'), 'error');
+      drupal_set_message(t('db_update failed. Message = %message, query= %query',
+        array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+    }
+    // Connecting to default drupal database.
+    db_set_active();
+    //For crushftp user acount expiry, it change data type of 'textfield' to 'Datetime'
+    global $user;
+    $expire_date = ($form_state['values']['active'] == '0') ? NULL : Date('Y/m/d  H:i:s', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400));
+    db_set_active('crushftp');
+    $entry = array(
+      'account_expire'  => $expire_date,
+      'expiry'  => $expire_date, 
+    );
+    $return_value = NULL;
+    //To get crushftp user Id because Id is uniq and crushftp user account will change values with respect to crushftp user 'id'
+    $user_id = $form_state['values']['id'];
+    // store edited crushftp details in crushftp databse in users table
+    try {
+      $return_value = db_update('USERS')
+                      ->condition('userid', $user_id)
+                      ->fields ($entry)
+                      ->execute();
+      drupal_set_message(t('Crushftp user details has been updated'));  
+      watchdog('crushftp', 'Crushftp user details has been updated (@user)', array('@user' => $user->uid), WATCHDOG_INFO);              
+    }
+    catch (Exception $e) {
+      drupal_set_message(t('Your can not update crushftp user right now. Please try again later.'), 'error');
+      drupal_set_message(t('db_update failed. Message = %message, query= %query',
+        array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+    }
+    // Connecting to default drupal database.
+    db_set_active();     
+  }
+  // Rules interaction.
+  //To get crushftp user Id because Id is uniq and crushftp user account will change values with respect to crushftp user 'id'
+  $user_id = $form_state['values']['id'];
+  $pmemail = $form_state['values']['createdemail'];
+  $ccemail = t('@names', 
+    array('@names' => implode(', ', $form_state['values']['names_fieldset']['name'])) );
+  $entry = array(
+    'user_name' => $form_state['values']['name'],
+    'password' => $form_state['values']['password'],
+    'expiration_date' =>  REQUEST_TIME + ((int) $form_state['values']['active'] * 86400),
+    'expiration_date_email' =>  $form_state['values']['account_expire'],
+     // ($form_state['values']['active'] == '0') ? NULL : 
+     // Date('M d Y', REQUEST_TIME + ((int) $form_state['values']['active'] * 86400)),
+    'email'  => $form_state['values']['email'],
+    'client_name'  => $form_state['values']['client'],
+    'cc_email'  => $ccemail,
+    'pmemail' => $pmemail,
+    'userid' => $user_id,
+    'PM' => $user->name,
+  );
+  rules_invoke_event('crushftp_admin_site_update', $user, $entry);
+
+  //Email function call in submit function
+  if($form_state['values']['notification'] <> FALSE) {
+  // Rules interaction.
+    rules_invoke_event('crushftp_send_email_account_update', $user, $entry);
+  }
+}
+
+/**
+ * Form constructor for the Manual update FTP Folder sizes  
+ *
+ * @param $id
+ *   $id is to be updated. 
+ *    Recognized 
+ *   - $id: The id of crushftp user in crushftp database
+ *   - crushftp_form();: A common form for crushftp user
+ *   - $result: getting values from crushftp database
+ *   - db_set_active('crushftp'): to connect with external database in drupal 7
+ *
+ * @see crushftp_update_form_validate()
+ * @see crushftp_update_form_submit()
+ * @ingroup forms
+ */
+function crushftp_update_ftp_folder_form($form, &$form_state) {
+   $form['Update FTP folders'] = array(
+   '#type' => 'submit',
+   '#value' => t('Update the FTP Folders'),
+ ); 
+return $form;  
+}
+
+/**
+ * Form submission handler for crushftp_update_ftp_folder_form().
+ * Manually Update FTP folders size 
+ * 
+ * To get parameters from these following function
+ *  see@ function getDirectorySize($path)
+ *  see@ function sizeFormat($size)
+*/
+function crushftp_update_ftp_folder_form_submit($form, &$form_state) {
+  global $user;
+  $path="/var/www/html/vsi-online-hr/ftp";
+  $ar=getDirectorySize($path); 
+  if ($handle = opendir('/var/www/html/vsi-online-hr/ftp')) {
+    //echo "Directory handle: $handle\n";
+    //echo "Entries:\n";
+    // This is the correct way to loop over the directory. 
+    while (false !== ($entry = readdir($handle))) {
+      //echo "$entry :";
+      $path="/var/www/html/vsi-online-hr/ftp/$entry"; 
+     $ar=getDirectorySize($path); 
+      $values  = array('size' => sizeFormat($ar['size']));
+        $return_value = NULL;
+        // store crushftp details in crushftp databse in users table
+        db_set_active('crushftp');
+        try {
+          $return_value = db_update('USERS')
+                          ->condition('username', $entry)
+                          ->fields ($values)
+                          ->execute();
+        drupal_set_message(t('The FTP Folders are updated'));
+        watchdog('crushftp', 'New crushftp user added (@user)', array('@user' => $user->uid), WATCHDOG_INFO);
+        }
+        catch (Exception $e) {
+        drupal_set_message(t('db_insert failed. Message = %message, query= %query',
+        array('%message' => $e->getMessage(), '%query' => $e->query_string)), 'error');
+        }  
+        // Connecting to default drupal database.
+        db_set_active();
+    }
+    closedir($handle);
+  }  
+}
+// Function to get size of folders
+function getDirectorySize($path) { 
+  $totalsize = 0; 
+  $totalcount = 0; 
+  $dircount = 0; 
+  if ($handle = opendir ($path)) 
+  { 
+    while (false !== ($file = readdir($handle))) 
+    { 
+      $nextpath = $path . '/' . $file; 
+      if ($file != '.' && $file != '..' && !is_link ($nextpath)) 
+      { 
+        if (is_dir ($nextpath)) 
+        { 
+          $dircount++; 
+          $result = getDirectorySize($nextpath); 
+          $totalsize += $result['size']; 
+          $totalcount += $result['count']; 
+          $dircount += $result['dircount']; 
+        } 
+        elseif (is_file ($nextpath)) 
+        { 
+          $totalsize += filesize ($nextpath); 
+          $totalcount++; 
+        } 
+      } 
+    } 
+  } 
+  closedir ($handle); 
+  $total['size'] = $totalsize; 
+  $total['count'] = $totalcount; 
+  $total['dircount'] = $dircount; 
+  return $total; 
+} 
+//function to get parameters of size
+function sizeFormat($size) { 
+    if($size<1024) 
+    { 
+        return $size." bytes"; 
+    } 
+    else if($size<(1024*1024)) 
+    { 
+        $size=round($size/1024,1); 
+        return $size." KB"; 
+    } 
+    else if($size<(1024*1024*1024)) 
+    { 
+        $size=round($size/(1024*1024),1); 
+        return $size." MB"; 
+    } 
+    else 
+    { 
+        $size=round($size/(1024*1024*1024),1); 
+        return $size." GB"; 
+    } 
+}

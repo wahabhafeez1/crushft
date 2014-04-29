@@ -1,0 +1,15 @@
+name = crushFTP 
+description = "crushFTP"
+core = 7.x
+configure = admin/config/administration/crushftp
+package = crushFTP
+
+files[] = views/crushftp_views_handler_fields.inc
+files[] = views/crushftp_views_handler_filters.inc
+
+
+; Information added by drush on 2013-01-06
+version = "master-dev"
+project = "crushftp"
+datestamp = "1357473946"
+
